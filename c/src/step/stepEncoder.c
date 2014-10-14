@@ -21,6 +21,8 @@
  DD-MMM-YYYY INIT.    SIR    Modification Description
  ----------- -------- ------ ----------------------------------------------------
  19-10-2013  CXJIN           创建
+ 30-JUL-2014 ZHENGWU  #5011  新增全市场状态消息
+ 11-AUG-2014 ZHENGWU  #5010  根据LFIXT会话协议规范调整
  ================================================================================
   </pre>
 */
@@ -45,9 +47,9 @@
  */
 static const char* STEP_MSGTYPE_MAP[] =
 {
-    STEP_MSGTYPE_LOGON_VALUE,
-    STEP_MSGTYPE_LOGOUT_VALUE,
     STEP_MSGTYPE_HEARTBEAT_VALUE,
+    STEP_MSGTYPE_LOGOUT_VALUE,
+    STEP_MSGTYPE_LOGON_VALUE,
     STEP_MSGTYPE_MD_REQUEST_VALUE,
     STEP_MSGTYPE_MD_SNAPSHOT_VALUE,
     STEP_MSGTYPE_TRADING_STATUS_VALUE,
@@ -58,15 +60,19 @@ static const char* STEP_MSGTYPE_MAP[] =
  * 内部函数申明
  */
 
-static ResCodeT EncodeLogonDataRecord(LogonRecordT* pRecord, StepDirectionT direction, 
+static ResCodeT EncodeHeartbeatRecord(HeartbeatRecordT* pRecord, 
         char* buf, int32 bufSize, int32* pEncodeSize);
-static ResCodeT EncodeLogoutRecord(LogoutRecordT* pRecord, StepDirectionT direction, 
+static ResCodeT EncodeLogoutRecord(LogoutRecordT* pRecord,  
         char* buf, int32 bufSize, int32* pEncodeSize);
-static ResCodeT EncodeMDRequestRecord(MDRequestRecordT* pRecord, StepDirectionT direction, 
+static ResCodeT EncodeLogonRecord(LogonRecordT* pRecord, 
+        char* buf, int32 bufSize, int32* pEncodeSize);
+static ResCodeT EncodeMDRequestRecord(MDRequestRecordT* pRecord, 
         char* buf, int32 bufSize, int32* pEncodeSize);
 static ResCodeT EncodeMDSnapshotFullRefreshRecord(MDSnapshotFullRefreshRecordT* pRecord, 
-        StepDirectionT direction, char* buf, int32 bufSize, int32* pEncodeSize);
-static ResCodeT EncodeStepMessageBody(StepMessageT* pMsg, StepDirectionT direction,
+        char* buf, int32 bufSize, int32* pEncodeSize);
+static ResCodeT EncodeTradingStatusRecord(TradingStatusRecordT* pRecord, 
+        char* buf, int32 bufSize, int32* pEncodeSize);
+static ResCodeT EncodeStepMessageBody(StepMessageT* pMsg, 
         char* buf, int32 bufSize, int32* pEncodeSize);
 
 
@@ -78,15 +84,13 @@ static ResCodeT EncodeStepMessageBody(StepMessageT* pMsg, StepDirectionT directi
  * 编码STEP消息
  *
  * @param   pMsg            in  - STEP消息
- * @param   direction       in  - 消息传输方向
  * @param   buf             out - 编码缓冲区
  * @param   bufSize         in  - 编码缓冲区长度
  * @param   pEncodeSize     out - 编码长度
  *
  * @return  成功返回NO_ERR，否则返回错误码
  */
-ResCodeT EncodeStepMessage(StepMessageT* pMsg, StepDirectionT direction,
-        char* buf, int32 bufSize, int32* pEncodeSize)
+ResCodeT EncodeStepMessage(StepMessageT* pMsg, char* buf, int32 bufSize, int32* pEncodeSize)
 {
     TRY
     {
@@ -94,7 +98,7 @@ ResCodeT EncodeStepMessage(StepMessageT* pMsg, StepDirectionT direction,
         int32 bodySize = 0, encodeSize = 0;
 
         /* 编码消息体 */
-        THROW_ERROR(EncodeStepMessageBody(pMsg, direction, body, sizeof(body), &bodySize));
+        THROW_ERROR(EncodeStepMessageBody(pMsg, body, sizeof(body), &bodySize));
 
         /* 编码消息头 */
         THROW_ERROR(AddStringField(STEP_BEGIN_STRING_TAG, STEP_BEGIN_STRING_VALUE, buf, 
@@ -131,10 +135,9 @@ ResCodeT EncodeStepMessage(StepMessageT* pMsg, StepDirectionT direction,
 }
 
 /**
- * 编码登陆消息
+ * 编码心跳消息
  *
- * @param   pRecord         in  - 登陆信息
- * @param   direction       in  - 消息方向
+ * @param   pRecord         in  - 心跳信息
  * @param   buf             in  - 编码缓冲区
  *                          out - 编码后的缓冲区
  * @param   bufSize         in  - 编码缓冲区长度
@@ -143,8 +146,7 @@ ResCodeT EncodeStepMessage(StepMessageT* pMsg, StepDirectionT direction,
  *
  * @return  成功返回NO_ERR，否则返回错误码
  */
-ResCodeT EncodeLogonDataRecord(LogonRecordT* pRecord, StepDirectionT direction, 
-        char* buf, int32 bufSize, int32* pEncodeSize)
+ResCodeT EncodeHeartbeatRecord(HeartbeatRecordT* pRecord, char* buf, int32 bufSize, int32* pEncodeSize)
 {
     TRY
     {
@@ -153,19 +155,126 @@ ResCodeT EncodeLogonDataRecord(LogonRecordT* pRecord, StepDirectionT direction,
         char* bufBegin    = buf + *pEncodeSize;
         int32 bufLeftSize = bufSize - *pEncodeSize;
 
-        THROW_ERROR(AddInt8Field(STEP_ENCRYPT_METHOD_TAG, pRecord->encryptMethod, 
+        if (pRecord->testReqID[0] != 0x00)
+        {
+            THROW_ERROR(AddStringField(STEP_TESTREQ_ID_TAG, pRecord->testReqID, 
+                bufBegin, bufLeftSize, &recordSize));
+        }
+    
+        *pEncodeSize += recordSize;
+    }
+    CATCH
+    {
+    }
+    FINALLY
+    {
+        RETURN_RESCODE;
+    }
+}
+
+/*
+ * 编码注销消息
+ *
+ * @param   pRecord         in  - 注销信息
+ * @param   buf             in  - 编码缓冲区
+ *                          out - 编码后的缓冲区
+ * @param   bufSize         in  - 编码缓冲区长度
+ * @param   pEncodeSize     in  - 编码前缓冲区已编码长度
+ *                          out - 编码后缓冲区已编码长度
+ *
+ * @return  成功返回NO_ERR，否则返回错误码
+ */
+ResCodeT EncodeLogoutRecord(LogoutRecordT* pRecord, char* buf, int32 bufSize, int32* pEncodeSize)
+{
+    TRY
+    {
+        int32 recordSize = 0;
+
+        char* bufBegin    = buf + *pEncodeSize;
+        int32 bufLeftSize = bufSize - *pEncodeSize;
+
+        if (pRecord->sessionStatus != (uint16)STEP_INVALID_UINT_VALUE)
+        {
+            THROW_ERROR(AddUint16Field(STEP_SESSION_STATUS_TAG, pRecord->sessionStatus, 
+                bufBegin, bufLeftSize, &recordSize));
+        }
+
+        if (pRecord->text[0] != 0x00)
+        {
+            THROW_ERROR(AddStringField(STEP_TEXT_TAG, pRecord->text, 
+                bufBegin, bufLeftSize, &recordSize));
+        }
+        *pEncodeSize += recordSize;
+    }
+    CATCH
+    {
+    }
+    FINALLY
+    {
+        RETURN_RESCODE;
+    }
+}
+
+/*
+ * 编码登陆消息
+ *
+ * @param   buf             in  - 编码缓冲区
+ *                          out - 编码后的缓冲区
+ * @param   bufSize         in  - 编码缓冲区长度
+ * @param   pEncodeSize     in  - 编码前缓冲区已编码长度
+ *                          out - 编码后缓冲区已编码长度
+ *
+ * @return  成功返回NO_ERR，否则返回错误码
+ */
+ResCodeT EncodeLogonRecord(LogonRecordT* pRecord, char* buf, int32 bufSize, int32* pEncodeSize)
+{
+    TRY
+    {
+        int32 recordSize = 0;
+
+        char* bufBegin    = buf + *pEncodeSize;
+        int32 bufLeftSize = bufSize - *pEncodeSize;
+
+        THROW_ERROR(AddUint32Field(STEP_ENCRYPT_METHOD_TAG, pRecord->encryptMethod, 
                 bufBegin, bufLeftSize, &recordSize));
 
-        THROW_ERROR(AddUint16Field(STEP_HEARTBT_INT_TAG, pRecord->heartBtInt, 
+        THROW_ERROR(AddUint32Field(STEP_HEARTBT_INT_TAG, pRecord->heartBtInt, 
                 bufBegin, bufLeftSize, &recordSize));
+
+        if (pRecord->resetSeqNumFlag != STEP_INVALID_BOOLEAN_VALUE)
+        {
+            THROW_ERROR(AddInt8Field(STEP_RESET_SEQNUM_FLAG_TAG, pRecord->resetSeqNumFlag, 
+                bufBegin, bufLeftSize, &recordSize));
+        }
+
+        if (pRecord->nextExpectedMsgSeqNum != (uint64)STEP_INVALID_UINT_VALUE)
+        {
+            THROW_ERROR(AddUint64Field(STEP_NEXTEXPECTEDMSG_SEQNUM_TAG, pRecord->nextExpectedMsgSeqNum, 
+                bufBegin, bufLeftSize, &recordSize));
+        }
 
         THROW_ERROR(AddStringField(STEP_USERNAME_TAG, pRecord->username, 
                 bufBegin, bufLeftSize, &recordSize));
 
-        if(STEP_DIRECTION_REQ == direction)
+        if (pRecord->password[0] != 0x00)
         {
             THROW_ERROR(AddStringField(STEP_PASSWORD_TAG, pRecord->password, 
                     bufBegin, bufLeftSize, &recordSize));
+        }
+
+        THROW_ERROR(AddStringField(STEP_DEFAULT_APPLVER_ID_TAG, pRecord->defaultApplVerID, 
+                bufBegin, bufLeftSize, &recordSize));
+
+        if (pRecord->defaultApplExtID != (uint32)STEP_INVALID_UINT_VALUE)
+        {
+            THROW_ERROR(AddUint32Field(STEP_DEFAULT_APPLEXT_ID_TAG, pRecord->defaultApplExtID, 
+                bufBegin, bufLeftSize, &recordSize));
+        }
+
+        if (pRecord->defaultCstmApplVerID[0] != 0x00)
+        {
+            THROW_ERROR(AddStringField(STEP_DEFAULT_CSTM_APPLVER_ID_TAG, pRecord->defaultCstmApplVerID, 
+                bufBegin, bufLeftSize, &recordSize));
         }
 
         *pEncodeSize += recordSize;
@@ -179,48 +288,12 @@ ResCodeT EncodeLogonDataRecord(LogonRecordT* pRecord, StepDirectionT direction,
     }
 }
 
-/*
- * 编码登出消息
- *
- * @param   pRecord         in  - 登出信息
- * @param   direction       in  - 消息方向
- * @param   buf             in  - 编码缓冲区
- *                          out - 编码后的缓冲区
- * @param   bufSize         in  - 编码缓冲区长度
- * @param   pEncodeSize     in  - 编码前缓冲区已编码长度
- *                          out - 编码后缓冲区已编码长度
- *
- * @return  成功返回NO_ERR，否则返回错误码
- */
-ResCodeT EncodeLogoutRecord(LogoutRecordT* pRecord, StepDirectionT direction, 
-        char* buf, int32 bufSize, int32* pEncodeSize)
-{
-    TRY
-    {
-        int32 recordSize = 0;
 
-        char* bufBegin    = buf + *pEncodeSize;
-        int32 bufLeftSize = bufSize - *pEncodeSize;
-
-        THROW_ERROR(AddStringField(STEP_TEXT_TAG, pRecord->text, 
-                bufBegin, bufLeftSize, &recordSize));
-
-        *pEncodeSize += recordSize;
-    }
-    CATCH
-    {
-    }
-    FINALLY
-    {
-        RETURN_RESCODE;
-    }
-}
 
 /**
  * 编码行情订阅消息
  *
  * @param   pRecord         in  - 行情订阅信息
- * @param   direction       in  - 消息方向
  * @param   buf             in  - 编码缓冲区
  *                          out - 编码后的缓冲区
  * @param   bufSize         in  - 编码缓冲区长度
@@ -229,8 +302,7 @@ ResCodeT EncodeLogoutRecord(LogoutRecordT* pRecord, StepDirectionT direction,
  *
  * @return  成功返回NO_ERR，否则返回错误码
  */
-ResCodeT EncodeMDRequestRecord(MDRequestRecordT* pRecord, StepDirectionT direction, 
-        char* buf, int32 bufSize, int32* pEncodeSize)
+ResCodeT EncodeMDRequestRecord(MDRequestRecordT* pRecord, char* buf, int32 bufSize, int32* pEncodeSize)
 {
     TRY
     {
@@ -256,8 +328,7 @@ ResCodeT EncodeMDRequestRecord(MDRequestRecordT* pRecord, StepDirectionT directi
 /**
  * 编码行情快照
  *
- * @param   pRecord         in     -  行情快照信息
- * @param   direction       in  - 消息方向
+ * @param   pRecord         in  - 行情快照信息
  * @param   buf             in  - 编码缓冲区
  *                          out - 编码后的缓冲区
  * @param   bufSize         in  - 编码缓冲区长度
@@ -267,7 +338,7 @@ ResCodeT EncodeMDRequestRecord(MDRequestRecordT* pRecord, StepDirectionT directi
  * @return  成功返回NO_ERR，否则返回错误码
  */
 static ResCodeT EncodeMDSnapshotFullRefreshRecord(MDSnapshotFullRefreshRecordT* pRecord, 
-        StepDirectionT direction, char* buf, int32 bufSize, int32* pEncodeSize)
+        char* buf, int32 bufSize, int32* pEncodeSize)
 {
     TRY
     {
@@ -307,7 +378,51 @@ static ResCodeT EncodeMDSnapshotFullRefreshRecord(MDSnapshotFullRefreshRecordT* 
 
         THROW_ERROR(AddBinaryField(STEP_RAWDATA_TAG, pRecord->mdData, pRecord->mdDataLen, 
                  bufBegin, bufLeftSize, &recordSize));
- 
+        *pEncodeSize += recordSize;
+    }
+    CATCH
+    {
+    }
+    FINALLY
+    {
+        RETURN_RESCODE;
+    }
+}
+
+/**
+ * 编码市场状态消息
+ *
+ * @param   pRecord         in  - 市场状态信息
+ * @param   buf             in  - 编码缓冲区
+ *                          out - 编码后的缓冲区
+ * @param   bufSize         in  - 编码缓冲区长度
+ * @param   pEncodeSize     in  - 编码前缓冲区已编码长度
+ *                          out - 编码后缓冲区已编码长度
+ *
+ * @return  成功返回NO_ERR，否则返回错误码
+ */
+static ResCodeT EncodeTradingStatusRecord(TradingStatusRecordT* pRecord, 
+        char* buf, int32 bufSize, int32* pEncodeSize)
+{
+    TRY
+    {
+        int32 recordSize = 0;
+
+        char* bufBegin    = buf + *pEncodeSize;
+        int32 bufLeftSize = bufSize - *pEncodeSize;
+        
+        THROW_ERROR(AddStringField(STEP_SECURITY_TYPE_TAG, pRecord->securityType, 
+                bufBegin, bufLeftSize, &recordSize));
+
+        THROW_ERROR(AddInt16Field(STEP_TRADE_SES_MODE_TAG, pRecord->tradSesMode, 
+                bufBegin, bufLeftSize, &recordSize));
+
+        THROW_ERROR(AddStringField(STEP_TRADING_SESSION_ID_TAG, pRecord->tradingSessionID, 
+                 bufBegin, bufLeftSize, &recordSize));
+
+        THROW_ERROR(AddUint32Field(STEP_TOTNO_RELATEDSYM_TAG, pRecord->totNoRelatedSym, 
+                 bufBegin, bufLeftSize, &recordSize));
+
         *pEncodeSize += recordSize;
     }
     CATCH
@@ -322,7 +437,7 @@ static ResCodeT EncodeMDSnapshotFullRefreshRecord(MDSnapshotFullRefreshRecordT* 
 /**
  * 编码STEP消息体
  *
- * @param   pMsg            in  -  STEP消息
+ * @param   pMsg            in  - STEP消息
  * @param   direction       in  - 消息方向
  * @param   buf             in  - 编码缓冲区
  *                          out - 编码后的缓冲区
@@ -332,8 +447,7 @@ static ResCodeT EncodeMDSnapshotFullRefreshRecord(MDSnapshotFullRefreshRecordT* 
  *
  * @return  成功返回NO_ERR，否则返回错误码
  */
-static ResCodeT EncodeStepMessageBody(StepMessageT* pMsg, StepDirectionT direction,
-        char* buf, int32 bufSize, int32* pEncodeSize)
+static ResCodeT EncodeStepMessageBody(StepMessageT* pMsg, char* buf, int32 bufSize, int32* pEncodeSize)
 {
     TRY
     {
@@ -357,6 +471,17 @@ static ResCodeT EncodeStepMessageBody(StepMessageT* pMsg, StepDirectionT directi
         THROW_ERROR(AddUint64Field(STEP_MSG_SEQ_NUM_TAG, pMsg->msgSeqNum, 
                 (char*)buf, bufSize, &encodeSize));
 
+        if (pMsg->possDupFlag != STEP_INVALID_BOOLEAN_VALUE)
+        {
+            THROW_ERROR(AddUint8Field(STEP_POSSDUP_FLAG_TAG, pMsg->possDupFlag, 
+                    (char*)buf, bufSize, &encodeSize));
+        }
+
+        if (pMsg->possResend != STEP_INVALID_BOOLEAN_VALUE)
+        {
+            THROW_ERROR(AddUint8Field(STEP_POSSRESEND_TAG, pMsg->possResend, 
+                    (char*)buf, bufSize, &encodeSize));
+        }
         THROW_ERROR(AddStringField(STEP_SENDING_TIME_TAG, pMsg->sendingTime, 
                 (char*)buf, bufSize, &encodeSize));
 
@@ -365,36 +490,40 @@ static ResCodeT EncodeStepMessageBody(StepMessageT* pMsg, StepDirectionT directi
 
         switch(pMsg->msgType)
         {
-            case STEP_MSGTYPE_LOGON:
+            case STEP_MSGTYPE_HEARTBEAT:
             {
-                THROW_ERROR(EncodeLogonDataRecord((LogonRecordT*)pMsg->body,
-                        direction, (char*)buf, bufSize, &encodeSize));
+                THROW_ERROR(EncodeHeartbeatRecord((HeartbeatRecordT*)pMsg->body,
+                        (char*)buf, bufSize, &encodeSize));
                 break;
             }
             case STEP_MSGTYPE_LOGOUT:
             {
                 THROW_ERROR(EncodeLogoutRecord((LogoutRecordT*)pMsg->body,
-                        direction, (char*)buf, bufSize, &encodeSize));
+                        (char*)buf, bufSize, &encodeSize));
                 break;
             }
-            case STEP_MSGTYPE_HEARTBEAT:
+            case STEP_MSGTYPE_LOGON:
             {
+                THROW_ERROR(EncodeLogonRecord((LogonRecordT*)pMsg->body,
+                        (char*)buf, bufSize, &encodeSize));
                 break;
             }
             case STEP_MSGTYPE_MD_REQUEST:
             {
                 THROW_ERROR(EncodeMDRequestRecord((MDRequestRecordT*)pMsg->body,
-                        direction, (char*)buf, bufSize, &encodeSize));
+                        (char*)buf, bufSize, &encodeSize));
                 break;
             }
             case STEP_MSGTYPE_MD_SNAPSHOT:
             {
                 THROW_ERROR(EncodeMDSnapshotFullRefreshRecord((MDSnapshotFullRefreshRecordT*)pMsg->body, 
-                        direction, (char*)buf, bufSize, &encodeSize));
+                        (char*)buf, bufSize, &encodeSize));
                 break;
             }
             case STEP_MSGTYPE_TRADING_STATUS:
             {
+                THROW_ERROR(EncodeTradingStatusRecord((TradingStatusRecordT*)pMsg->body, 
+                        (char*)buf, bufSize, &encodeSize));
                 break;
             }
             

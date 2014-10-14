@@ -20,6 +20,7 @@ MODIFICATION HISTORY:
 DD-MMM-YYYY INIT.    SIR    Modification Description
 ----------- -------- ------ ----------------------------------------------------
 04-MAR-2014 ZHENGWU         创建
+30-JUL-2014 ZHENGWU         新增全市场状态消息
 ================================================================================
 </pre>
 */
@@ -55,6 +56,7 @@ typedef struct EpsMktDatabaseTag
     BOOL            isSubscribed[EPS_MKTTYPE_NUM + 1];  
     uint32          applID;
     uint64          applSeqNum[EPS_MKTTYPE_NUM + 1];
+    char            mktStatus[EPS_MKTTYPE_NUM + 1][EPS_MKTSTATUS_LEN];
 } EpsMktDatabaseT;
 
 
@@ -88,9 +90,19 @@ ResCodeT UnsubscribeAllMktData(EpsMktDatabaseT* pDatabase);
 ResCodeT AcceptMktData(EpsMktDatabaseT* pDatabase, const StepMessageT* pMsg);
 
 /*
+ * 判断是否接受该条行情数据
+ */
+ResCodeT AcceptMktStatus(EpsMktDatabaseT* pDatabase, const StepMessageT* pMsg);
+
+/*
  * 转换行情数据格式
  */
 ResCodeT ConvertMktData(const StepMessageT* pMsg, EpsMktDataT* pData);
+
+/*
+ * 转换市场状态格式
+ */
+ResCodeT ConvertMktStatus(const StepMessageT* pMsg, EpsMktStatusT* pStatus);
 
 
 #ifdef __cplusplus

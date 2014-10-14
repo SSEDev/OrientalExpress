@@ -20,6 +20,8 @@ MODIFICATION HISTORY:
 DD-MMM-YYYY INIT.    SIR    Modification Description
 ----------- -------- ------ ----------------------------------------------------
 11-MAR-2014 ZHENGWU         创建
+04-AUG-2014 ZHENGWU  #5011  新增全市场状态消息
+11-AUG-2014 ZHENGWU  #5010  根据LFIXT会话协议规范调整
 ================================================================================
 </pre>
 */
@@ -49,15 +51,17 @@ static void OnEpsLoginRsp(uint32 hid, uint16 heartbeatIntl, ResCodeT result, con
 static void OnEpsLogoutRsp(uint32 hid, ResCodeT result, const char* reason);
 static void OnEpsMktDataSubRsp(uint32 hid, EpsMktTypeT mktType, ResCodeT result, const char* reason);
 static void OnEpsMktDataArrived(uint32 hid, const EpsMktDataT* pMktData);
+static void OnEpsMktStatusChanged(uint32 hid, const EpsMktStatusT* pMktStatus);
 static void OnEpsEventOccurred(uint32 hid, EpsEventTypeT eventType, ResCodeT eventCode, const char* eventText);
 
 static ResCodeT HandleLoginRsp(EpsTcpDriverT* pDriver, const StepMessageT* pMsg);
 static ResCodeT HandleLogoutRsp(EpsTcpDriverT* pDriver, const StepMessageT* pMsg);
 static ResCodeT HandleMDSubscribeRsp(EpsTcpDriverT* pDriver, const StepMessageT* pMsg);
 static ResCodeT HandleMarketData(EpsTcpDriverT* pDriver, const StepMessageT* pMsg);
+static ResCodeT HandleMarketStatus(EpsTcpDriverT* pDriver, const StepMessageT* pMsg);
 static ResCodeT HandleReceiveTimeout(EpsTcpDriverT* pDriver);
 
-static ResCodeT BuildLoginRequest(uint64 msgSeqNum, const char* username, const char* password, 
+static ResCodeT BuildLogonRequest(uint64 msgSeqNum, const char* username, const char* password, 
             uint16 heartbeatIntl, char* data, int32* pDataLen);
 static ResCodeT BuildLogoutRequest(uint64 msgSeqNum, const char* reason, char* data, int32* pDataLen);
 static ResCodeT BuildSubscribeRequest(uint64 msgSeqNum, EpsMktTypeT mktType, char* data, int32* pDataLen);
@@ -103,6 +107,7 @@ ResCodeT InitTcpDriver(EpsTcpDriverT* pDriver)
             OnEpsLogoutRsp,
             OnEpsMktDataSubRsp,
             OnEpsMktDataArrived,
+            OnEpsMktStatusChanged,
             OnEpsEventOccurred
         };
         pDriver->spi = spi;
@@ -188,6 +193,10 @@ ResCodeT RegisterTcpDriverSpi(EpsTcpDriverT* pDriver, const EpsClientSpiT* pSpi)
         if (pSpi->mktDataArrivedNotify != NULL)
         {
             pDriver->spi.mktDataArrivedNotify = pSpi->mktDataArrivedNotify;
+        }
+        if (pSpi->mktStatusChangedNotify != NULL)
+        {
+            pDriver->spi.mktStatusChangedNotify = pSpi->mktStatusChangedNotify;
         }
         if (pSpi->eventOccurredNotify != NULL)
         {
@@ -304,7 +313,7 @@ ResCodeT LoginTcpDriver(EpsTcpDriverT* pDriver, const char* username,
         pDriver->heartbeatIntl = heartbeatIntl;
         char data[STEP_MSG_MAX_LEN];
         int32 dataLen = (int32)sizeof(data);
-        THROW_ERROR(BuildLoginRequest(pDriver->msgSeqNum++, 
+        THROW_ERROR(BuildLogonRequest(pDriver->msgSeqNum++, 
             username, password, heartbeatIntl, data, &dataLen));
 
         pDriver->status = EPS_TCP_STATUS_LOGGING;
@@ -456,7 +465,7 @@ static void OnChannelReceived(void* pListener, ResCodeT result, const char* data
 {
 
     EpsTcpDriverT* pDriver = (EpsTcpDriverT*)pListener;
-
+  
     TRY
     {
         LockRecMutex(&pDriver->lock);
@@ -470,10 +479,12 @@ static void OnChannelReceived(void* pListener, ResCodeT result, const char* data
             StepMessageT msg;
             int32 decodeSize = 0;
             uint32 pickupLen = 0;
+            
             while (TRUE)
             {
                 rc = DecodeStepMessage(pDriver->recvBuffer + pickupLen, 
                     pDriver->recvBufferLen - pickupLen, &msg, &decodeSize);
+      
                 if (NOTOK(rc))
                 {
                     if (rc == ERCD_STEP_STREAM_NOT_ENOUGH)
@@ -502,12 +513,15 @@ static void OnChannelReceived(void* pListener, ResCodeT result, const char* data
                         THROW_ERROR(HandleMarketData(pDriver, &msg));
                         break;
                     case STEP_MSGTYPE_HEARTBEAT:
+                        break;
                     case STEP_MSGTYPE_TRADING_STATUS:
+                        THROW_ERROR(HandleMarketStatus(pDriver, &msg));
                         break;
                     default:
                         THROW_ERROR(ERCD_EPS_UNEXPECTED_MSGTYPE);
                         break;
                 }
+                
                 pDriver->recvIdleTimes = 0;
                 pDriver->commIdleTimes = 0;
             }
@@ -717,6 +731,52 @@ static ResCodeT HandleMarketData(EpsTcpDriverT* pDriver, const StepMessageT* pMs
     }
     FINALLY
     {
+       // UnlockRecMutex(&pDriver->lock);
+
+        RETURN_RESCODE;
+    }
+}
+
+/**
+ * 处理市场状态
+ *
+ * @param   pDriver             in  - TCP驱动器
+ * @param   pMsg                in  - 市场状态消息
+ *
+ * @return  成功返回NO_ERR，否则返回错误码
+ */
+static ResCodeT HandleMarketStatus(EpsTcpDriverT* pDriver, const StepMessageT* pMsg)
+{
+    TRY
+    {
+        LockRecMutex(&pDriver->lock);
+
+        ResCodeT rc = AcceptMktStatus(&pDriver->database, pMsg);
+        if (OK(rc))
+        {
+            EpsMktStatusT mktStatus;
+            THROW_ERROR(ConvertMktStatus(pMsg, &mktStatus));
+
+            pDriver->spi.mktStatusChangedNotify(pDriver->hid, &mktStatus);
+        }
+        else
+        {
+            if (rc == ERCD_EPS_MKTSTATUS_UNCHANGED || rc == ERCD_EPS_MKTTYPE_UNSUBSCRIBED)
+            {
+                ErrClearError();
+                THROW_RESCODE(NO_ERR);
+            }
+            else
+            {
+                THROW_RESCODE(rc);
+            }
+        }
+    }
+    CATCH
+    {
+    }
+    FINALLY
+    {
         UnlockRecMutex(&pDriver->lock);
 
         RETURN_RESCODE;
@@ -789,7 +849,7 @@ static ResCodeT HandleReceiveTimeout(EpsTcpDriverT* pDriver)
  *
  * @return  成功返回NO_ERR，否则返回错误码
  */
-static ResCodeT BuildLoginRequest(uint64 msgSeqNum, const char* username, const char* password, 
+static ResCodeT BuildLogonRequest(uint64 msgSeqNum, const char* username, const char* password, 
         uint16 heartbeatIntl, char* data, int32* pDataLen)
 {
     TRY
@@ -800,17 +860,21 @@ static ResCodeT BuildLoginRequest(uint64 msgSeqNum, const char* username, const 
         msg.msgType   = STEP_MSGTYPE_LOGON;
         msg.msgSeqNum = msgSeqNum;
         GetSendingTime(msg.sendingTime);
-        snprintf(msg.senderCompID, sizeof(msg.senderCompID), STEP_TARGET_COMPID_VALUE);
+        snprintf(msg.senderCompID, sizeof(msg.senderCompID), STEP_SENDER_COMPID_VALUE);
         snprintf(msg.targetCompID, sizeof(msg.targetCompID), STEP_TARGET_COMPID_VALUE);
         snprintf(msg.msgEncoding, sizeof(msg.msgEncoding), STEP_MSG_ENCODING_VALUE);
 
         LogonRecordT* pRecord = (LogonRecordT*)msg.body;
         pRecord->encryptMethod = STEP_ENCRYPT_METHOD_NONE;
         pRecord->heartBtInt = heartbeatIntl;
+        pRecord->resetSeqNumFlag = 'Y';
+        pRecord->nextExpectedMsgSeqNum = 1;
         snprintf(pRecord->username, sizeof(pRecord->username), username);
         snprintf(pRecord->password, sizeof(pRecord->password), password);
+        snprintf(pRecord->defaultApplVerID, sizeof(pRecord->defaultApplVerID), STEP_DEF_APPLVER_ID_VALUE);
+        pRecord->defaultApplExtID = STEP_DEF_APPLEXT_ID_VALUE;
 
-        THROW_ERROR(EncodeStepMessage(&msg, STEP_DIRECTION_REQ, data, *pDataLen, pDataLen));
+        THROW_ERROR(EncodeStepMessage(&msg, data, *pDataLen, pDataLen));
     }
     CATCH
     {
@@ -842,14 +906,14 @@ static ResCodeT BuildLogoutRequest(uint64 msgSeqNum, const char* reason, char* d
         msg.msgType   = STEP_MSGTYPE_LOGOUT;
         msg.msgSeqNum = msgSeqNum;
         GetSendingTime(msg.sendingTime);
-        snprintf(msg.senderCompID, sizeof(msg.senderCompID), STEP_TARGET_COMPID_VALUE);
+        snprintf(msg.senderCompID, sizeof(msg.senderCompID), STEP_SENDER_COMPID_VALUE);
         snprintf(msg.targetCompID, sizeof(msg.targetCompID), STEP_TARGET_COMPID_VALUE);
         snprintf(msg.msgEncoding, sizeof(msg.msgEncoding), STEP_MSG_ENCODING_VALUE);
             
         LogoutRecordT* pRecord = (LogoutRecordT*)msg.body;
         snprintf(pRecord->text, sizeof(pRecord->text), reason);
     
-        THROW_ERROR(EncodeStepMessage(&msg, STEP_DIRECTION_REQ, data, *pDataLen, pDataLen));
+        THROW_ERROR(EncodeStepMessage(&msg, data, *pDataLen, pDataLen));
     }
     CATCH
     {
@@ -881,14 +945,14 @@ static ResCodeT BuildSubscribeRequest(uint64 msgSeqNum, EpsMktTypeT mktType, cha
         msg.msgType   = STEP_MSGTYPE_MD_REQUEST;
         msg.msgSeqNum = msgSeqNum;
         GetSendingTime(msg.sendingTime);
-        snprintf(msg.senderCompID, sizeof(msg.senderCompID), STEP_TARGET_COMPID_VALUE);
+        snprintf(msg.senderCompID, sizeof(msg.senderCompID), STEP_SENDER_COMPID_VALUE);
         snprintf(msg.targetCompID, sizeof(msg.targetCompID), STEP_TARGET_COMPID_VALUE);
         snprintf(msg.msgEncoding, sizeof(msg.msgEncoding), STEP_MSG_ENCODING_VALUE);
             
         MDRequestRecordT* pRecord = (MDRequestRecordT*)msg.body;
         snprintf(pRecord->securityType, sizeof(pRecord->securityType), "%02d", mktType);
      
-        THROW_ERROR(EncodeStepMessage(&msg, STEP_DIRECTION_REQ, data, *pDataLen, pDataLen));
+        THROW_ERROR(EncodeStepMessage(&msg, data, *pDataLen, pDataLen));
     }
     CATCH
     {
@@ -919,11 +983,11 @@ static ResCodeT BuildHeartbeatRequest(uint64 msgSeqNum, char* data, int32* pData
         msg.msgType   = STEP_MSGTYPE_HEARTBEAT;
         msg.msgSeqNum = msgSeqNum;
         GetSendingTime(msg.sendingTime);
-        snprintf(msg.senderCompID, sizeof(msg.senderCompID), STEP_TARGET_COMPID_VALUE);
+        snprintf(msg.senderCompID, sizeof(msg.senderCompID), STEP_SENDER_COMPID_VALUE);
         snprintf(msg.targetCompID, sizeof(msg.targetCompID), STEP_TARGET_COMPID_VALUE);
         snprintf(msg.msgEncoding, sizeof(msg.msgEncoding), STEP_MSG_ENCODING_VALUE);
             
-        THROW_ERROR(EncodeStepMessage(&msg, STEP_DIRECTION_REQ, data, *pDataLen, pDataLen));
+        THROW_ERROR(EncodeStepMessage(&msg, data, *pDataLen, pDataLen));
     }
     CATCH
     {
@@ -948,8 +1012,9 @@ static ResCodeT GetSendingTime(char* szSendingTime)
 #if defined(__WINDOWS__)
         time_t tt = time(NULL);
     	struct tm* pNowTime = localtime(&tt);
-        sprintf(szSendingTime, "%02d%02d%02d%02ld",
-             pNowTime->tm_hour, pNowTime->tm_min, pNowTime->tm_sec, (long)0);
+        sprintf(szSendingTime, "%04d%02d%02d-%02d%02d%02d%03d",
+             pNowTime->tm_year + 1900, pNowTime->tm_mon + 1, pNowTime->tm_mday,
+             pNowTime->tm_hour, pNowTime->tm_min, pNowTime->tm_sec, 0);
 #endif
 
 #if defined(__LINUX__) || defined(__HPUX__) 
@@ -959,8 +1024,9 @@ static ResCodeT GetSendingTime(char* szSendingTime)
         gettimeofday(&tv_time, NULL);
         localtime_r((time_t *)&(tv_time.tv_sec), &nowTime);
 
-        sprintf(szSendingTime, "%02d%02d%02d%02ld",
-            nowTime.tm_hour, nowTime.tm_min, nowTime.tm_sec, (long)0);
+        sprintf(szSendingTime, "%04d%02d%02d-%02d:%02d:%02d.%03d",
+            nowTime.tm_year + 1900, nowTime.tm_mon + 1, nowTime.tm_mday,
+            nowTime.tm_hour, nowTime.tm_min, nowTime.tm_sec, 0);
 #endif
     }
     CATCH
@@ -1023,6 +1089,9 @@ static void OnEpsMktDataSubRsp(uint32 hid, EpsMktTypeT mktType, ResCodeT result,
 {
 }
 static void OnEpsMktDataArrived(uint32 hid, const EpsMktDataT* pMktData)
+{
+}
+static void OnEpsMktStatusChanged(uint32 hid, const EpsMktStatusT* pMktStatus)
 {
 }
 static void OnEpsEventOccurred(uint32 hid, EpsEventTypeT eventType, ResCodeT eventCode, const char* eventText)

@@ -208,19 +208,30 @@ ResCodeT CalcChecksum(const char* buf, int32 bufSize, char* checksum);
     do\
     {\
         int32 i = 0;\
-        if (_field.value[i] > '9' || _field.value[i] < '1') \
+        if (_field.valueSize == 1) \
         {\
-            THROW_ERROR(ERCD_STEP_INVALID_FLDVALUE,\
+            if (_field.value[i] > '9' || _field.value[i] < '0')\
+            {\
+                THROW_ERROR(ERCD_STEP_INVALID_FLDVALUE, \
                     _field.tag, _field.valueSize, _field.value,\
                     "Invalid integer value");\
+            }\
         }\
-        \
+        else \
+        { \
+            if (_field.value[i] > '9' || _field.value[i] < '1') \
+            {\
+                THROW_ERROR(ERCD_STEP_INVALID_FLDVALUE, \
+                        _field.tag, _field.valueSize, _field.value,\
+                        "Invalid integer value");\
+            }\
+        }\
         i++; \
         for (; i < _field.valueSize; i++)\
         {\
             if (_field.value[i] > '9' || _field.value[i] < '0')\
             {\
-                THROW_ERROR(ERCD_STEP_INVALID_FLDVALUE,\
+                THROW_ERROR(ERCD_STEP_INVALID_FLDVALUE, \
                     _field.tag, _field.valueSize, _field.value,\
                     "Invalid integer value");\
             }\

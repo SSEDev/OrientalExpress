@@ -20,6 +20,7 @@ MODIFICATION HISTORY:
 DD-MMM-YYYY INIT.    SIR    Modification Description
 ----------- -------- ------ ----------------------------------------------------
 14-FEB-2014 ZHENGWU         创建
+04-AUG-2014 ZHENGWU         新增全市场状态消息
 ================================================================================
 </pre>
 */
@@ -67,6 +68,7 @@ static void OnEpsLoginRsp(uint32 hid, uint16 heartbeatIntl, ResCodeT result, con
 static void OnEpsLogoutRsp(uint32 hid, ResCodeT result, const char* reason);
 static void OnEpsMktDataSubRsp(uint32 hid, EpsMktTypeT mktType, ResCodeT result, const char* reason);
 static void OnEpsMktDataArrived(uint32 hid, const EpsMktDataT* pMktData);
+static void OnEpsMktStatusChanged(uint32 hid, const EpsMktStatusT* pMktStatus);
 static void OnEpsEventOccurred(uint32 hid, EpsEventTypeT eventType, ResCodeT eventCode, const char* eventText);
 
 static ResCodeT HandleReceiveTimeout(EpsUdpDriverT* pDriver);
@@ -109,6 +111,7 @@ ResCodeT InitUdpDriver(EpsUdpDriverT* pDriver)
             OnEpsLogoutRsp,
             OnEpsMktDataSubRsp,
             OnEpsMktDataArrived,
+            OnEpsMktStatusChanged,
             OnEpsEventOccurred
         };
         pDriver->spi = spi;
@@ -190,6 +193,10 @@ ResCodeT RegisterUdpDriverSpi(EpsUdpDriverT* pDriver, const EpsClientSpiT* pSpi)
         if (pSpi->mktDataArrivedNotify != NULL)
         {
             pDriver->spi.mktDataArrivedNotify = pSpi->mktDataArrivedNotify;
+        }
+        if (pSpi->mktStatusChangedNotify != NULL)
+        {
+            pDriver->spi.mktStatusChangedNotify = pSpi->mktStatusChangedNotify;
         }
         if (pSpi->eventOccurredNotify != NULL)
         {
@@ -431,34 +438,57 @@ static void OnChannelReceived(void* pListener, ResCodeT result, const char* data
             int32 decodeSize = 0;
             THROW_ERROR(DecodeStepMessage(data, dataLen, &msg, &decodeSize));
 
-            if (msg.msgType != STEP_MSGTYPE_MD_SNAPSHOT)
+            if (msg.msgType == STEP_MSGTYPE_MD_SNAPSHOT)
             {
-                THROW_RESCODE(NO_ERR);
-            }
+                rc = AcceptMktData(&pDriver->database, &msg);
+                if (NOTOK(rc))
+                {
+                    if (rc == ERCD_EPS_DATASOURCE_CHANGED)
+                    {
+                        pDriver->spi.eventOccurredNotify(pDriver->hid, EPS_EVENTTYPE_WARNING, rc, ErrGetErrorDscr());
+                    }
+                    else if (rc == ERCD_EPS_MKTTYPE_UNSUBSCRIBED)
+                    {
+                        THROW_RESCODE(NO_ERR);
+                    }
+                    else 
+                    {
+                        THROW_RESCODE(rc);
+                    }
+                }
+            
+                EpsMktDataT mktData;
+                THROW_ERROR(ConvertMktData(&msg, &mktData));
 
-            rc = AcceptMktData(&pDriver->database, &msg);
-            if (NOTOK(rc))
+                pDriver->spi.mktDataArrivedNotify(pDriver->hid, &mktData);
+
+                pDriver->recvIdleTimes = 0;
+            }
+            else if (msg.msgType == STEP_MSGTYPE_TRADING_STATUS)
             {
-                if (rc == ERCD_EPS_DATASOURCE_CHANGED)
+                rc = AcceptMktStatus(&pDriver->database, &msg);
+                if (NOTOK(rc))
                 {
-                    pDriver->spi.eventOccurredNotify(pDriver->hid, EPS_EVENTTYPE_WARNING, rc, ErrGetErrorDscr());
+                    if (rc == ERCD_EPS_MKTSTATUS_UNCHANGED || rc == ERCD_EPS_MKTTYPE_UNSUBSCRIBED)
+                    {
+                        THROW_RESCODE(NO_ERR);
+                    }
+                    else 
+                    {
+                        THROW_RESCODE(rc);
+                    }
                 }
-                else if (rc == ERCD_EPS_MKTTYPE_UNSUBSCRIBED)
-                {
-                    THROW_RESCODE(NO_ERR);
-                }
-                else 
-                {
-                    THROW_RESCODE(rc);
-                }
+            
+                EpsMktStatusT mktStatus;
+                THROW_ERROR(ConvertMktStatus(&msg, &mktStatus));
+
+                pDriver->spi.mktStatusChangedNotify(pDriver->hid, &mktStatus);
+
+                pDriver->recvIdleTimes = 0;
             }
-
-            EpsMktDataT mktData;
-            THROW_ERROR(ConvertMktData(&msg, &mktData));
-
-            pDriver->spi.mktDataArrivedNotify(pDriver->hid, &mktData);
-
-            pDriver->recvIdleTimes = 0;
+            else
+            {
+            }
         }
         else
         {
@@ -621,6 +651,9 @@ static void OnEpsMktDataSubRsp(uint32 hid, EpsMktTypeT mktType, ResCodeT result,
 {
 }
 static void OnEpsMktDataArrived(uint32 hid, const EpsMktDataT* pMktData)
+{
+}
+static void OnEpsMktStatusChanged(uint32 hid, const EpsMktStatusT* pMktStatus)
 {
 }
 static void OnEpsEventOccurred(uint32 hid, EpsEventTypeT eventType, ResCodeT eventCode, const char* eventText)

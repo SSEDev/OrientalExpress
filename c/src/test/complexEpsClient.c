@@ -44,6 +44,7 @@ DD-MMM-YYYY INIT.    SIR    Modification Description
 static char g_address[EPS_IP_MAX_LEN*2+1];
 static char g_username[EPS_USERNAME_MAX_LEN+1];
 static char g_password[EPS_PASSWORD_MAX_LEN+1];
+static int g_reqMarket;
 
 /**
  * 函数实现
@@ -51,10 +52,10 @@ static char g_password[EPS_PASSWORD_MAX_LEN+1];
 
 static void Usage()
 {
-    printf("Usage: epsComplex <address> <username> <password>\n\n" \
+    printf("Usage: epsComplex <address> <username> <password> <requestMarket>\n\n" \
            "example:\n" \
-           "epsComplex \"230.11.1.1:3300;196.123.71.3\" username password\n" \
-           "epsComplex \"196.123.71.3:3473 username password\"\n");
+           "epsComplex \"230.11.1.1:3300;196.123.71.3\" username password 0\n" \
+           "epsComplex \"196.123.71.3:3473 username password 1\"\n");
 }
 
 static void OnEpsConnectedTest(uint32 hid)
@@ -86,7 +87,7 @@ static void OnEpsLoginRspTest(uint32 hid, uint16 heartbeatIntl, ResCodeT result,
     {
         printf("==> call EpsSubscribeMarketData() ... ");
   
-        ResCodeT rc = EpsSubscribeMarketData(hid, EPS_MKTTYPE_ALL);
+        ResCodeT rc = EpsSubscribeMarketData(hid, g_reqMarket);
         if (OK(rc))
         {
             printf("OK. hid :%d\n", hid);
@@ -112,12 +113,20 @@ static void OnEpsMktDataSubRspTest(uint32 hid, EpsMktTypeT mktType, ResCodeT res
 static void OnEpsMktDataArrivedTest(uint32 hid, const EpsMktDataT* pMktData)
 {
 #if defined (__LINUX__) || defined (__HPUX__)
-    printf("==> OnMktDataArrived(), hid: %d, applID: %d, applSeqNum: %lld, mdCount: %u\n", hid, pMktData->applID, pMktData->applSeqNum, pMktData->mdCount);
+    printf("==> OnMktDataArrived(), hid: %d, mktType: %d, updateType: %.3s, applID: %d, applSeqNum: %lld\n", 
+        hid, pMktData->mktType, pMktData->mdUpdateType, pMktData->applID, pMktData->applSeqNum);
 #endif
 
 #if defined (__WINDOWS__)
-    printf("==> OnMktDataArrived(), hid: %d, applID: %d, applSeqNum: %I64d, mdCount: %u\n", hid, pMktData->applID, pMktData->applSeqNum, pMktData->mdCount);
+    printf("==> OnMktDataArrived(), hid: %d, mktType: %d, updateType: %.3s, applID: %d, applSeqNum: %I64d\n", 
+        hid, pMktData->mktType, pMktData->mdUpdateType, pMktData->applID, pMktData->applSeqNum);
 #endif
+}
+
+static void OnEpsMktStatusChangedTest(uint32 hid, const EpsMktStatusT* pMktStatus)
+{
+    printf("==> OnMktStatusChanged(), hid: %d, mktType: %d, mktStatus: %.8s\n",
+        hid, pMktStatus->mktType, pMktStatus->mktStatus);
 }
 
 static void OnEpsEventOccurredTest(uint32 hid, EpsEventTypeT eventType, ResCodeT eventCode, const char* eventText)
@@ -136,7 +145,7 @@ int main(int argc, char *argv[])
 
         setvbuf(stdout, NULL, _IONBF, 0); /* 设置标准输出为非行缓冲模式 */
 
-        if (argc < 4)
+        if (argc < 5)
         {
             Usage();
             exit(0);
@@ -150,6 +159,7 @@ int main(int argc, char *argv[])
         snprintf(g_address, sizeof(g_address), argv[1]);
         snprintf(g_username, sizeof(g_username), argv[2]);
         snprintf(g_password, sizeof(g_password), argv[3]);
+        g_reqMarket = atoi(argv[4]);
         
         printf("\n>>> epsClientTest starting ... \n");
 
@@ -190,6 +200,7 @@ int main(int argc, char *argv[])
             OnEpsLogoutRspTest,
             OnEpsMktDataSubRspTest,
             OnEpsMktDataArrivedTest,
+            OnEpsMktStatusChangedTest,
             OnEpsEventOccurredTest,
         };
  

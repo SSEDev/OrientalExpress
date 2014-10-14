@@ -70,6 +70,12 @@ static void OnEpsMktDataArrivedTest(uint32 hid, const EpsMktDataT* pMktData)
 #endif
 }
 
+static void OnEpsMktStatusChangedTest(uint32 hid, const EpsMktStatusT* pMktStatus)
+{
+    printf("==> OnMktStatusChanged(), hid: %d, mktType: %d, mktStatus: %.8s\n",
+        hid, pMktStatus->mktType, pMktStatus->mktStatus);
+}
+
 static void OnEpsEventOccurredTest(uint32 hid, EpsEventTypeT eventType, ResCodeT eventCode, const char* eventText)
 {
     printf("==> OnEventOccurred(), hid: %d, eventType: %d, eventCode: %u, eventText: %s\n", 
@@ -133,6 +139,7 @@ int main(int argc, char *argv[])
             NULL,
             NULL,
             OnEpsMktDataArrivedTest,
+            OnEpsMktStatusChangedTest,
             OnEpsEventOccurredTest,
         };
  

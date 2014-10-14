@@ -20,6 +20,7 @@
  DD-MMM-YYYY INIT.    SIR    Modification Description
  ----------- -------- ------ ----------------------------------------------------
  19-10-2013  CXJIN    创建
+ 11-AUG-2014 ZHENGWU  #5010  根据LFIXT会话协议规范调整
  ================================================================================
   </pre>
 */
@@ -45,14 +46,12 @@ extern "C" {
 /*
  * 编码STEP消息
  */
-ResCodeT EncodeStepMessage(StepMessageT* pMsg, StepDirectionT direction,
-        char* buf, int32 bufSize, int32* pEncodeSize);
+ResCodeT EncodeStepMessage(StepMessageT* pMsg, char* buf, int32 bufSize, int32* pEncodeSize);
 
 /*
  * 解码STEP消息
  */
-ResCodeT DecodeStepMessage(const char* buf, int32 bufSize, StepMessageT* pMsg, 
-        int32* pDecodeSize);
+ResCodeT DecodeStepMessage(const char* buf, int32 bufSize, StepMessageT* pMsg, int32* pDecodeSize);
 
 /*
  * 校验STEP消息

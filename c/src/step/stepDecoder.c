@@ -21,6 +21,8 @@
  DD-MMM-YYYY INIT.    SIR    Modification Description
  ----------- -------- ------ ----------------------------------------------------
  12-11-2013  CXJIN           创建
+ 30-JUL-2014 ZHENGWU  #5011  新增全市场状态消息
+ 11-AUG-2014 ZHENGWU  #5010  根据LFIXT会话协议规范调整
  ================================================================================
   </pre>
 */
@@ -65,6 +67,14 @@
         STEP_EXTRACT_INT_VALUE(field, uint64, pMsg->msgSeqNum);\
         break;\
     }\
+    case STEP_POSSDUP_FLAG_TAG:\
+    {\
+        STEP_EXTRACT_CHAR_VALUE(field, char, pMsg->possDupFlag);\
+    }\
+    case STEP_POSSRESEND_TAG:\
+    {\
+        STEP_EXTRACT_CHAR_VALUE(field, char, pMsg->possResend);\
+    }\
     case STEP_SENDING_TIME_TAG:\
     {\
         STEP_EXTRACT_STRING_VALUE(field, \
@@ -85,15 +95,17 @@
  
 static ResCodeT DecodeStepMessageBody(const char* buf, int32 bufSize, 
         StepMessageT* pMsg);
-static ResCodeT DecodeLogonDataRecord(const char* buf, int32 bufSize, 
+static ResCodeT DecodeHeartbeatRecord(const char* buf, int32 bufSize, 
         StepMessageT* pMsg);
 static ResCodeT DecodeLogoutRecord(const char* buf, int32 bufSize, 
         StepMessageT* pMsg);
-static ResCodeT DecodeHeartBeatRecord(const char* buf, int32 bufSize, 
+static ResCodeT DecodeLogonRecord(const char* buf, int32 bufSize, 
         StepMessageT* pMsg);
 static ResCodeT DecodeMDRequestRecord(const char* buf, int32 bufSize, 
         StepMessageT* pMsg);
 static ResCodeT DecodeMDSnapshotFullRefreshRecord(const char* buf, int32 bufSize, 
+        StepMessageT* pMsg);
+static ResCodeT DecodeTradingStatusRecord(const char* buf, int32 bufSize, 
         StepMessageT* pMsg);
 
 /*
@@ -148,7 +160,7 @@ ResCodeT DecodeStepMessage(const char* buf, int32 bufSize,
 
         int32 bodyLen = 0;
         STEP_EXTRACT_INT_VALUE(field, int32, bodyLen);
-        if (bodyLen > STEP_MSG_BODY_MAX_LEN)
+        if (bodyLen > STEP_MSGBODY_MAX_LEN)
         {
             THROW_ERROR(ERCD_STEP_INVALID_FLDVALUE, 
                 field.tag, field.valueSize, field.value, "BodyLength overflow");
@@ -216,6 +228,8 @@ static ResCodeT DecodeStepMessageBody(const char* buf, int32 bufSize, StepMessag
             STEP_INVALID_STRING_VALUE,  /* senderCompID */
             STEP_INVALID_STRING_VALUE,  /* targetCompID */
             STEP_INVALID_UINT_VALUE,    /* msgSeqNum */
+            STEP_INVALID_BOOLEAN_VALUE, /* possDupFlag */
+            STEP_INVALID_BOOLEAN_VALUE, /* possResend */
             STEP_INVALID_STRING_VALUE,  /* sendingTime */
             STEP_MSG_ENCODING_VALUE,    /* msgEncoding */
             {0}                         /* body */
@@ -237,10 +251,10 @@ static ResCodeT DecodeStepMessageBody(const char* buf, int32 bufSize, StepMessag
         STEP_EXTRACT_STRING_VALUE(field, msgType, (int)sizeof(msgType));
 
         memcpy(pMsg, &STEP_MSG_TEMPLATE, sizeof(StepMessageT));
-        
-        if (strncmp(STEP_MSGTYPE_LOGON_VALUE, msgType, sizeof(msgType)) == 0)
+
+        if (strncmp(STEP_MSGTYPE_HEARTBEAT_VALUE, msgType, sizeof(msgType)) == 0)
         {
-            THROW_ERROR(DecodeLogonDataRecord((char*)buf + bufOffset, 
+            THROW_ERROR(DecodeHeartbeatRecord((char*)buf + bufOffset, 
                     bufSize - bufOffset, pMsg));
         }
         else if (strncmp(STEP_MSGTYPE_LOGOUT_VALUE, msgType, sizeof(msgType)) == 0)
@@ -248,9 +262,9 @@ static ResCodeT DecodeStepMessageBody(const char* buf, int32 bufSize, StepMessag
             THROW_ERROR(DecodeLogoutRecord((char*)buf + bufOffset, 
                     bufSize - bufOffset, pMsg));
         }
-        else if (strncmp(STEP_MSGTYPE_HEARTBEAT_VALUE, msgType, sizeof(msgType)) == 0)
+        else if (strncmp(STEP_MSGTYPE_LOGON_VALUE, msgType, sizeof(msgType)) == 0)
         {
-            THROW_ERROR(DecodeHeartBeatRecord((char*)buf + bufOffset, 
+            THROW_ERROR(DecodeLogonRecord((char*)buf + bufOffset, 
                     bufSize - bufOffset, pMsg));
         }
         else if (strncmp(STEP_MSGTYPE_MD_REQUEST_VALUE, msgType, sizeof(msgType)) == 0)
@@ -265,6 +279,8 @@ static ResCodeT DecodeStepMessageBody(const char* buf, int32 bufSize, StepMessag
         }
         else if (strncmp(STEP_MSGTYPE_TRADING_STATUS_VALUE, msgType, sizeof(msgType)) == 0)
         {
+            THROW_ERROR(DecodeTradingStatusRecord((char*)buf + bufOffset, 
+                bufSize - bufOffset, pMsg));
         }
         else
         {
@@ -281,7 +297,7 @@ static ResCodeT DecodeStepMessageBody(const char* buf, int32 bufSize, StepMessag
 }
 
 /*
- * 解码STEP登陆消息
+ * 解码STEP心跳消息
  *
  * @param   buf             in  - 解码缓冲区
  * @param   bufSize         in  - 解码缓冲区长度
@@ -289,56 +305,38 @@ static ResCodeT DecodeStepMessageBody(const char* buf, int32 bufSize, StepMessag
  *
  * @return  成功返回NO_ERR，否则返回错误码
  */
-static ResCodeT DecodeLogonDataRecord(const char* buf, int32 bufSize, StepMessageT* pMsg)
+static ResCodeT DecodeHeartbeatRecord(const char* buf, int32 bufSize, StepMessageT* pMsg)
 {
     TRY
     {
-        /* 登陆请求记录初始化模板 */
-        static const LogonRecordT STEP_LOGON_RECORD_TEMPLATE = 
+        /* 心跳记录初始化模板 */
+        static const HeartbeatRecordT STEP_HEARTBEAT_RECORD_TEMPLATE = 
         {
-            STEP_INVALID_INT_VALUE,     /* encryptMethod */
-            STEP_INVALID_UINT_VALUE,    /* heartBtInt */
-            STEP_INVALID_STRING_VALUE,  /* username */
-            STEP_INVALID_STRING_VALUE,  /* password */
+            STEP_INVALID_STRING_VALUE,  /* testReqID */
         };
 
-        pMsg->msgType = STEP_MSGTYPE_LOGON;
+        pMsg->msgType = STEP_MSGTYPE_HEARTBEAT;
 
         StepFieldT field;
         int32 bufOffset = 0;
-        LogonRecordT* pRecord = (LogonRecordT*)pMsg->body;
-        memcpy(pRecord, &STEP_LOGON_RECORD_TEMPLATE, sizeof(LogonRecordT));
+        HeartbeatRecordT* pRecord = (HeartbeatRecordT*)pMsg->body;
+        memcpy(pRecord, &STEP_HEARTBEAT_RECORD_TEMPLATE, sizeof(HeartbeatRecordT));
         
         while(bufOffset < bufSize)
         {
             THROW_ERROR(GetTextField(buf, bufSize, &field, &bufOffset));
-   
-            switch (field.tag)
+
+            switch(field.tag)
             {
                 DECODE_STEP_MSG_HEADER_STUB
 
-                case STEP_ENCRYPT_METHOD_TAG:
+                case STEP_TESTREQ_ID_TAG:
                 {
-                    STEP_EXTRACT_CHAR_VALUE(field, int8, pRecord->encryptMethod);
+                    STEP_EXTRACT_STRING_VALUE(field, pRecord->testReqID, 
+                        (int32)sizeof(pRecord->testReqID));
                     break;
                 }
-                case STEP_HEARTBT_INT_TAG:
-                {
-                    STEP_EXTRACT_INT_VALUE(field, uint16, pRecord->heartBtInt);
-                    break;
-                }
-                case STEP_USERNAME_TAG:
-                {
-                    STEP_EXTRACT_STRING_VALUE(field, pRecord->username, 
-                            (int32)sizeof(pRecord->username));
-                    break;
-                }
-                case STEP_PASSWORD_TAG:
-                {
-                    STEP_EXTRACT_STRING_VALUE(field, pRecord->password, 
-                            (int32)sizeof(pRecord->password));
-                    break;
-                }
+
                 default:
                     THROW_ERROR(ERCD_STEP_UNEXPECTED_TAG, field.tag);
                     break;
@@ -355,7 +353,7 @@ static ResCodeT DecodeLogonDataRecord(const char* buf, int32 bufSize, StepMessag
 }
 
 /*
- * 解码STEP登出消息
+ * 解码STEP注销消息
  *
  * @param   buf             in  - 解码缓冲区
  * @param   bufSize         in  - 解码缓冲区长度
@@ -370,7 +368,8 @@ static ResCodeT DecodeLogoutRecord(const char* buf, int32 bufSize, StepMessageT*
         /* 登出请求记录初始化模板 */
         static const LogoutRecordT STEP_LOGOUT_RECORD_TEMPLATE = 
         {
-            STEP_INVALID_STRING_VALUE, /* text */
+            STEP_INVALID_UINT_VALUE,    /* sessionStatus */
+            STEP_INVALID_STRING_VALUE,  /* text */
         };
 
         pMsg->msgType = STEP_MSGTYPE_LOGOUT;
@@ -388,6 +387,11 @@ static ResCodeT DecodeLogoutRecord(const char* buf, int32 bufSize, StepMessageT*
             {
                 DECODE_STEP_MSG_HEADER_STUB
 
+                case STEP_SESSION_STATUS_TAG:
+                {
+                    STEP_EXTRACT_INT_VALUE(field, uint16, pRecord->sessionStatus); 
+                    break;
+                }
                 case STEP_TEXT_TAG:
                 {
                     STEP_EXTRACT_STRING_VALUE(field, pRecord->text, 
@@ -410,7 +414,7 @@ static ResCodeT DecodeLogoutRecord(const char* buf, int32 bufSize, StepMessageT*
 }
 
 /*
- * 解码STEP心跳消息
+ * 解码STEP登陆消息
  *
  * @param   buf             in  - 解码缓冲区
  * @param   bufSize         in  - 解码缓冲区长度
@@ -418,23 +422,88 @@ static ResCodeT DecodeLogoutRecord(const char* buf, int32 bufSize, StepMessageT*
  *
  * @return  成功返回NO_ERR，否则返回错误码
  */
-static ResCodeT DecodeHeartBeatRecord(const char* buf, int32 bufSize, StepMessageT* pMsg)
+static ResCodeT DecodeLogonRecord(const char* buf, int32 bufSize, StepMessageT* pMsg)
 {
     TRY
     {
-        pMsg->msgType = STEP_MSGTYPE_HEARTBEAT;
+        /* 登陆请求记录初始化模板 */
+        static const LogonRecordT STEP_LOGON_RECORD_TEMPLATE = 
+        {
+            STEP_INVALID_BOOLEAN_VALUE, /* encryptMethod */
+            STEP_INVALID_UINT_VALUE,    /* heartBtInt */
+            STEP_INVALID_BOOLEAN_VALUE, /* resetSeqNumFlag */
+            STEP_INVALID_UINT_VALUE,    /* nextExpectedMsgSeqNum */
+            STEP_INVALID_STRING_VALUE,  /* username */
+            STEP_INVALID_STRING_VALUE,  /* password */
+            STEP_INVALID_STRING_VALUE,  /* defaultApplVerID */
+            STEP_INVALID_UINT_VALUE,    /* defaultApplExtID */
+            STEP_INVALID_STRING_VALUE,  /* defaultCstmApplVerID */
+        };
+
+        pMsg->msgType = STEP_MSGTYPE_LOGON;
 
         StepFieldT field;
         int32 bufOffset = 0;
+        LogonRecordT* pRecord = (LogonRecordT*)pMsg->body;
+        memcpy(pRecord, &STEP_LOGON_RECORD_TEMPLATE, sizeof(LogonRecordT));
         
         while(bufOffset < bufSize)
         {
             THROW_ERROR(GetTextField(buf, bufSize, &field, &bufOffset));
-
-            switch(field.tag)
+   
+            switch (field.tag)
             {
                 DECODE_STEP_MSG_HEADER_STUB
 
+                case STEP_ENCRYPT_METHOD_TAG:
+                {
+                    STEP_EXTRACT_INT_VALUE(field, uint32, pRecord->encryptMethod);
+                    break;
+                }
+                case STEP_HEARTBT_INT_TAG:
+                {
+                    STEP_EXTRACT_INT_VALUE(field, uint16, pRecord->heartBtInt);
+                    break;
+                }
+                case STEP_RESET_SEQNUM_FLAG_TAG:
+                {
+                    STEP_EXTRACT_CHAR_VALUE(field, char, pRecord->resetSeqNumFlag);
+                    break;
+                }
+                case STEP_NEXTEXPECTEDMSG_SEQNUM_TAG:
+                {
+                    STEP_EXTRACT_INT_VALUE(field, uint64, pRecord->nextExpectedMsgSeqNum);
+                    break;
+                }
+                case STEP_USERNAME_TAG:
+                {
+                    STEP_EXTRACT_STRING_VALUE(field, pRecord->username, 
+                            (int32)sizeof(pRecord->username));
+                    break;
+                }
+                case STEP_PASSWORD_TAG:
+                {
+                    STEP_EXTRACT_STRING_VALUE(field, pRecord->password, 
+                            (int32)sizeof(pRecord->password));
+                    break;
+                }
+                case STEP_DEFAULT_APPLVER_ID_TAG:
+                {
+                    STEP_EXTRACT_STRING_VALUE(field, pRecord->defaultApplVerID, 
+                            (int32)sizeof(pRecord->defaultApplVerID));
+                    break;
+                }
+                case STEP_DEFAULT_APPLEXT_ID_TAG:
+                {
+                    STEP_EXTRACT_INT_VALUE(field, uint32, pRecord->defaultApplExtID);
+                    break;
+                }
+                case STEP_DEFAULT_CSTM_APPLVER_ID_TAG:
+                {
+                    STEP_EXTRACT_STRING_VALUE(field, pRecord->defaultCstmApplVerID, 
+                            (int32)sizeof(pRecord->defaultCstmApplVerID));
+                    break;
+                }
                 default:
                     THROW_ERROR(ERCD_STEP_UNEXPECTED_TAG, field.tag);
                     break;
@@ -595,7 +664,7 @@ static ResCodeT DecodeMDSnapshotFullRefreshRecord(const char* buf,
                 }
                 case STEP_RAWDATA_LENGTH_TAG:
                 {
-                    STEP_EXTRACT_INT_VALUE(field, uint32, pRecord->mdDataLen);
+                    STEP_EXTRACT_INT_VALUE(field, uint32, pRecord->mdDataLen); 
 
                     /* Tag(96, RawData)必须紧跟Tag(95, RawDataLength) */
                     THROW_ERROR(GetBinaryField(buf, bufSize, pRecord->mdDataLen, 
@@ -608,6 +677,80 @@ static ResCodeT DecodeMDSnapshotFullRefreshRecord(const char* buf,
                     }
                     STEP_EXTRACT_BINARY_VALUE(field, pRecord->mdData, 
                             (int32)sizeof(pRecord->mdData));
+                    break;
+                }
+                default:
+                    THROW_ERROR(ERCD_STEP_UNEXPECTED_TAG, field.tag);
+                    break;
+            }
+        }
+    }
+    CATCH
+    {
+    }
+    FINALLY
+    {
+        RETURN_RESCODE;
+    }
+}
+/*
+ * 解码市场状态消息
+ *
+ * @param   buf             in  - 解码缓冲区
+ * @param   bufSize         in  - 解码缓冲区长度
+ * @param   pMsg            out - STEP消息
+ *
+ * @return  成功返回NO_ERR，否则返回错误码
+ */
+static ResCodeT DecodeTradingStatusRecord(const char* buf, int32 bufSize, 
+        StepMessageT* pMsg)
+{
+    TRY
+    {
+        /* 全幅行情消息初始化模板 */
+        static const TradingStatusRecordT STEP_TRADINGSTATUS_RECORD_TEMPLATE = 
+        {
+            STEP_INVALID_STRING_VALUE,  /* securityType */
+            STEP_INVALID_INT_VALUE,     /* tradSesMode */
+            STEP_INVALID_STRING_VALUE,  /* tradingSessionID */
+            STEP_INVALID_UINT_VALUE,    /* TotNoRelatedSym */
+        };
+
+        pMsg->msgType = STEP_MSGTYPE_TRADING_STATUS;
+
+        StepFieldT field;
+        int32 bufOffset = 0;
+        TradingStatusRecordT* pRecord = (TradingStatusRecordT*)pMsg->body;
+        memcpy(pRecord, &STEP_TRADINGSTATUS_RECORD_TEMPLATE, sizeof(TradingStatusRecordT));
+        
+        while(bufOffset < bufSize)
+        {
+            THROW_ERROR(GetTextField(buf, bufSize, &field, &bufOffset));
+      
+            switch(field.tag)
+            {
+                DECODE_STEP_MSG_HEADER_STUB
+                
+                case STEP_SECURITY_TYPE_TAG:
+                {
+                    STEP_EXTRACT_STRING_VALUE(field, pRecord->securityType, 
+                            (int32)sizeof(pRecord->securityType));
+                    break;
+                }
+                case STEP_TRADE_SES_MODE_TAG:
+                {
+                    STEP_EXTRACT_INT_VALUE(field, int16, pRecord->tradSesMode);
+                    break;
+                }
+                case STEP_TRADING_SESSION_ID_TAG:
+                {
+                    STEP_EXTRACT_STRING_VALUE(field, pRecord->tradingSessionID,
+                            (int32)sizeof(pRecord->tradingSessionID));
+                    break;
+                }
+                case STEP_TOTNO_RELATEDSYM_TAG:
+                {
+                    STEP_EXTRACT_INT_VALUE(field, uint32, pRecord->totNoRelatedSym);
                     break;
                 }
                 default:

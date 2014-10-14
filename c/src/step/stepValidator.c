@@ -20,7 +20,9 @@
  ================================================================================
  DD-MMM-YYYY INIT.    SIR    Modification Description
  ----------- -------- ------ ----------------------------------------------------
- 18-11-2013  CXJIN           创建
+ 18-NOV-2013 CXJIN           创建
+ 04-AUG-2014 ZHENGWU  #5011  新增全市场状态消息
+ 11-AUG-2014 ZHENGWU  #5010  根据LFIXT会话协议规范调整
  ================================================================================
   </pre>
 */
@@ -42,13 +44,17 @@
 
 static ResCodeT ValidateStepMsgHeader(const StepMessageT* pMsg, 
         StepDirectionT direction);
-static ResCodeT ValidateLogonRecord(const LogonRecordT* pRecord, 
+static ResCodeT ValidateHeartbeatRecord(const HeartbeatRecordT* pRecord, 
         StepDirectionT direction);
 static ResCodeT ValidateLogoutRecord(const LogoutRecordT* pRecord, 
+        StepDirectionT direction);
+static ResCodeT ValidateLogonRecord(const LogonRecordT* pRecord, 
         StepDirectionT direction);
 static ResCodeT ValidateMDRequestRecord(const MDRequestRecordT* pRecord, 
         StepDirectionT direction);
 static ResCodeT ValidateMDSnapshortRecord(const MDSnapshotFullRefreshRecordT* pRecord, 
+        StepDirectionT direction);
+static ResCodeT ValidateTradingStatusRecord(const TradingStatusRecordT* pRecord, 
         StepDirectionT direction);
 
 /*
@@ -71,9 +77,9 @@ ResCodeT ValidateStepMessage(const StepMessageT* pMsg, StepDirectionT direction)
         
         switch (pMsg->msgType)
         {
-            case STEP_MSGTYPE_LOGON:
+            case STEP_MSGTYPE_HEARTBEAT:
             {
-                THROW_ERROR(ValidateLogonRecord((const LogonRecordT*)pMsg->body, direction));
+                THROW_ERROR(ValidateHeartbeatRecord((const HeartbeatRecordT*)pMsg->body, direction));
                 break;
             }
             case STEP_MSGTYPE_LOGOUT:
@@ -81,8 +87,9 @@ ResCodeT ValidateStepMessage(const StepMessageT* pMsg, StepDirectionT direction)
                 THROW_ERROR(ValidateLogoutRecord((const LogoutRecordT*)pMsg->body, direction));
                 break;
             }
-            case STEP_MSGTYPE_HEARTBEAT:
+            case STEP_MSGTYPE_LOGON:
             {
+                THROW_ERROR(ValidateLogonRecord((const LogonRecordT*)pMsg->body, direction));
                 break;
             }
             case STEP_MSGTYPE_MD_REQUEST:
@@ -98,6 +105,8 @@ ResCodeT ValidateStepMessage(const StepMessageT* pMsg, StepDirectionT direction)
             }
             case STEP_MSGTYPE_TRADING_STATUS:
             {
+                THROW_ERROR(ValidateTradingStatusRecord((const TradingStatusRecordT*)pMsg->body, 
+                        direction));
                 break;
             }
             default:
@@ -152,10 +161,14 @@ static ResCodeT ValidateStepMsgHeader(const StepMessageT* pMsg, StepDirectionT d
             THROW_ERROR(ERCD_STEP_FLD_NOTFOUND, "52, SendingTime");
         }
 
-        if (strncmp(pMsg->msgEncoding, STEP_MSG_ENCODING_VALUE, sizeof(pMsg->msgEncoding)) != 0)
+        if (strncmp(pMsg->msgEncoding, STEP_INVALID_STRING_VALUE, sizeof(pMsg->msgEncoding)) == 0)
+        {
+            THROW_ERROR(ERCD_STEP_FLD_NOTFOUND, "347, messageEncoding");
+        }
+        else if (strncmp(pMsg->msgEncoding, STEP_MSG_ENCODING_VALUE, sizeof(pMsg->msgEncoding)) != 0)
         {
             THROW_ERROR(ERCD_STEP_INVALID_FLDVALUE, STEP_MSG_ENCODING_TAG, 
-                strlen(pMsg->msgEncoding), pMsg->msgEncoding, "Fixed value GBK");
+                strlen(pMsg->msgEncoding), pMsg->msgEncoding, "const value \"GBK\"");
         }
     }
     CATCH
@@ -168,6 +181,50 @@ static ResCodeT ValidateStepMsgHeader(const StepMessageT* pMsg, StepDirectionT d
 }
 
 /**
+ * 校验心跳消息
+ *
+ * @param   pRecord         in  - 心跳消息
+ * @param   direction       in  - 消息传输方向
+ *
+ * @return  成功返回NO_ERR，否则返回错误码
+ */
+ResCodeT ValidateHeartbeatRecord(const HeartbeatRecordT* pRecord, StepDirectionT direction)
+{
+    TRY
+    {
+    }
+    CATCH
+    {
+    }
+    FINALLY
+    {
+        RETURN_RESCODE;
+    }
+}
+
+/**
+ * 校验注销消息
+ *
+ * @param   pRecord         in  - 登出消息
+ * @param   direction       in  - 消息传输方向
+ *
+ * @return  成功返回NO_ERR，否则返回错误码
+ */
+ResCodeT ValidateLogoutRecord(const LogoutRecordT* pRecord, StepDirectionT direction)
+{
+    TRY
+    {
+    }
+    CATCH
+    {
+    }
+    FINALLY
+    {
+        RETURN_RESCODE;
+    }
+}
+
+/*
  * 校验登陆消息
  *
  * @param   pRecord         in  - 登陆消息
@@ -179,7 +236,7 @@ ResCodeT ValidateLogonRecord(const LogonRecordT* pRecord, StepDirectionT directi
 {
     TRY
     {
-        if (pRecord->encryptMethod == STEP_INVALID_INT_VALUE)
+        if (pRecord->encryptMethod == (uint32)STEP_INVALID_UINT_VALUE)
         {
             THROW_ERROR(ERCD_STEP_FLD_NOTFOUND, "98, encryptMethod");
         }
@@ -195,39 +252,40 @@ ResCodeT ValidateLogonRecord(const LogonRecordT* pRecord, StepDirectionT directi
             THROW_ERROR(ERCD_STEP_FLD_NOTFOUND, "553, username");
         }
         
-        if(direction == STEP_DIRECTION_REQ)
+        if (direction == STEP_DIRECTION_REQ)
         {
+            if (pRecord->resetSeqNumFlag == STEP_INVALID_BOOLEAN_VALUE)
+            {
+                THROW_ERROR(ERCD_STEP_FLD_NOTFOUND, "141, resetSeqNumFlag");
+            }
+            else if (pRecord->resetSeqNumFlag != 'Y')
+            {
+                THROW_ERROR(ERCD_STEP_INVALID_FLDVALUE, STEP_MSG_ENCODING_TAG,
+                    1, pRecord->resetSeqNumFlag, "const value \"Y\"");
+            }
+
+            if (pRecord->nextExpectedMsgSeqNum == (uint64)STEP_INVALID_UINT_VALUE)
+            {
+                THROW_ERROR(ERCD_STEP_FLD_NOTFOUND, "789, nextExpectedMsgSeqNum");
+            }
+
             if (strncmp(pRecord->password, STEP_INVALID_STRING_VALUE, 
                     sizeof(pRecord->password)) == 0)
             {
                 THROW_ERROR(ERCD_STEP_FLD_NOTFOUND, "554, password");
             }
-        }
-    }
-    CATCH
-    {
-    }
-    FINALLY
-    {
-        RETURN_RESCODE;
-    }
-}
 
-/**
- * 校验登出消息
- *
- * @param   pRecord         in  - 登出消息
- * @param   direction       in  - 消息传输方向
- *
- * @return  成功返回NO_ERR，否则返回错误码
- */
-ResCodeT ValidateLogoutRecord(const LogoutRecordT* pRecord, StepDirectionT direction)
-{
-    TRY
-    {
-        if(strncmp(pRecord->text, STEP_INVALID_STRING_VALUE, sizeof(pRecord->text)) == 0)
-        {
-            THROW_ERROR(ERCD_STEP_FLD_NOTFOUND, "58, Text");
+            if (strncmp(pRecord->defaultApplVerID, STEP_INVALID_STRING_VALUE, 
+                    sizeof(pRecord->defaultApplVerID)) == 0)
+            {
+                THROW_ERROR(ERCD_STEP_FLD_NOTFOUND, "1137, defaultApplVerID");
+            }
+            else if (strncmp(pRecord->defaultApplVerID, STEP_DEF_APPLVER_ID_VALUE, 
+                    sizeof(pRecord->defaultApplVerID)) != 0)
+            {
+                THROW_ERROR(ERCD_STEP_INVALID_FLDVALUE, STEP_DEFAULT_APPLVER_ID_TAG,
+                    strlen(pRecord->defaultApplVerID), pRecord->defaultApplVerID, "const value \"9\"");
+            }
         }
     }
     CATCH
@@ -320,6 +378,49 @@ ResCodeT ValidateMDSnapshortRecord(const MDSnapshotFullRefreshRecordT* pRecord,
         if(pRecord->mdDataLen == (uint32)STEP_INVALID_UINT_VALUE)
         {
             THROW_ERROR(ERCD_STEP_FLD_NOTFOUND, "95, mdDataLen");
+        }
+    }
+    CATCH
+    {
+    }
+    FINALLY
+    {
+        RETURN_RESCODE;
+    }
+}
+/**
+ * 校验行情快照消息
+ *
+ * @param   pRecord         in  - 行情快照消息
+ * @param   direction       in  - 消息传输方向
+ *
+ * @return  成功返回NO_ERR，否则返回错误码
+ */
+ResCodeT ValidateTradingStatusRecord(const TradingStatusRecordT* pRecord, 
+        StepDirectionT direction)
+{
+    TRY
+    {
+        if (strncmp(pRecord->securityType, STEP_INVALID_STRING_VALUE, 
+                sizeof(pRecord->securityType)) == 0)
+        {
+            THROW_ERROR(ERCD_STEP_FLD_NOTFOUND, "167, securityType");
+        }
+
+        if (pRecord->tradSesMode == STEP_INVALID_INT_VALUE)
+        {
+            THROW_ERROR(ERCD_STEP_FLD_NOTFOUND, "339, tradSesMode");
+        }
+
+        if (strncmp(pRecord->tradingSessionID, STEP_INVALID_STRING_VALUE,
+                sizeof(pRecord->tradingSessionID)) == 0)
+        {
+            THROW_ERROR(ERCD_STEP_FLD_NOTFOUND, "336, tradingSessionID");
+        }
+
+        if (pRecord->totNoRelatedSym == (uint32)STEP_INVALID_UINT_VALUE)
+        {
+            THROW_ERROR(ERCD_STEP_FLD_NOTFOUND, "393, totNoRelatedSym");
         }
     }
     CATCH

@@ -20,6 +20,7 @@ MODIFICATION HISTORY:
 DD-MMM-YYYY INIT.    SIR    Modification Description
 ----------- -------- ------ ----------------------------------------------------
 17-FEB-2014 ZHENGWU         创建
+04-AUG-2014 ZHENGWU         新增全市场状态消息
 ================================================================================
 </pre>
 */
@@ -51,6 +52,7 @@ extern "C" {
 #define EPS_MKTDATA_MAX_LEN             4096
 #define EPS_USERNAME_MAX_LEN            10
 #define EPS_PASSWORD_MAX_LEN            10
+#define EPS_MKTSTATUS_LEN               8
 
 
 /**
@@ -115,6 +117,17 @@ typedef struct EpsMktDataTag
     char    mdData[EPS_MKTDATA_MAX_LEN];/* 行情数据 */
 } EpsMktDataT;
 
+/*
+ * 市场状态消息
+ */
+typedef struct EpsMktStatusTag
+{
+    EpsMktTypeT mktType;                /* 市场类型 */
+    EpsTrdSesModeT tradSesMode;         /* 交易模式 */    
+    char    mktStatus[EPS_MKTSTATUS_LEN+1];/* 市场状态 */
+    uint32  totNoRelatedSym;            /* 市场产品总数 */
+} EpsMktStatusT;
+
 
 /*
  * 用户回调接口函数类型
@@ -125,6 +138,7 @@ typedef void (*EpsLoginRspCallback)(uint32 hid, uint16 heartbeatIntl, int32 resu
 typedef void (*EpsLogoutRspCallback)(uint32 hid, int32 result, const char* reason);
 typedef void (*EpsMktDataSubRspCallback)(uint32 hid, EpsMktTypeT mktType, int32 result, const char* reason);
 typedef void (*EpsMktDataArrivedCallback)(uint32 hid, const EpsMktDataT* pMktData);
+typedef void (*EpsMktStatusChangedCallback)(uint32 hid, const EpsMktStatusT* pMktStatus);
 typedef void (*EpsEventOccurredCallback)(uint32 hid, EpsEventTypeT eventType, int32 eventCode, const char* eventText);
 
 /*
@@ -138,6 +152,7 @@ typedef struct EpsClientSpiTag
     EpsLogoutRspCallback        logoutRspNotify;     /* 登出应答通知 */
     EpsMktDataSubRspCallback    mktDataSubRspNotify; /* 行情订阅应答通知 */
     EpsMktDataArrivedCallback   mktDataArrivedNotify;/* 行情数据到达通知 */
+    EpsMktStatusChangedCallback mktStatusChangedNotify;/* 市场状态变化通知 */
     EpsEventOccurredCallback    eventOccurredNotify;  /* 事件发生通知 */
 } EpsClientSpiT;
 

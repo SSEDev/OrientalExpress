@@ -58,6 +58,7 @@ extern "C" {
 #define ERCD_EPS_SUBMARKETDATA_FAILED           0x20010014
 #define ERCD_EPS_CHECK_KEEPALIVE_TIMEOUT        0x20010015   
 #define ERCD_EPS_HID_COUNT_BEYOND_LIMIT         0x20010016
+#define ERCD_EPS_MKTSTATUS_UNCHANGED            0x20010017           
 
 
 /* STEP–≠“È¥ÌŒÛ¬Î */
