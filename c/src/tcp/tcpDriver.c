@@ -279,8 +279,6 @@ ResCodeT DisconnectTcpDriver(EpsTcpDriverT* pDriver)
     }
     FINALLY
     {
-        UnlockRecMutex(&pDriver->lock);
-
         RETURN_RESCODE;
     }
 }
@@ -731,7 +729,7 @@ static ResCodeT HandleMarketData(EpsTcpDriverT* pDriver, const StepMessageT* pMs
     }
     FINALLY
     {
-       // UnlockRecMutex(&pDriver->lock);
+        UnlockRecMutex(&pDriver->lock);
 
         RETURN_RESCODE;
     }

@@ -487,6 +487,15 @@ ResCodeT OpenTcpChannel(EpsTcpChannelT* pChannel)
             THROW_ERROR(ERCD_EPS_SOCKET_ERROR, EpsGetSystemError(lstErrno));
         }
 
+        int rcvBufferSize = EPS_SOCKET_RECVBUFFER_LEN;
+        int len = sizeof(rcvBufferSize);
+        result = setsockopt(fd, SOL_SOCKET, SO_RCVBUF, (const char*)&rcvBufferSize, len);
+        if (result == SOCKET_ERROR)
+        {
+            int lstErrno = NET_ERRNO;
+            THROW_ERROR(ERCD_EPS_SOCKET_ERROR, EpsGetSystemError(lstErrno));
+        }   
+
         struct sockaddr_in srvAddr;
         memset(&srvAddr, 0x00, sizeof(srvAddr));
             

@@ -73,7 +73,7 @@ typedef struct EpsTcpDriverTag
     
     EpsTcpStatusT   status;                 /* 驱动器状态 */
     uint64          msgSeqNum;              /* 消息序号 */
-    char            recvBuffer[STEP_MSG_MAX_LEN*2];/* 接收缓冲区 */
+    char            recvBuffer[EPS_SOCKET_RECVBUFFER_LEN*2];/* 接收缓冲区 */
     uint32          recvBufferLen;          /* 接收缓冲区长度 */
     EpsRecMutexT    lock;                   /* 驱动器锁 */
     

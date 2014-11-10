@@ -451,9 +451,13 @@ static void OnChannelReceived(void* pListener, ResCodeT result, const char* data
                     {
                         THROW_RESCODE(NO_ERR);
                     }
-                    else 
+                    else if (rc == ERCD_EPS_MKTDATA_BACKFLOW)
                     {
-                        THROW_RESCODE(rc);
+                        THROW_RESCODE(NO_ERR);
+                    }
+                    else
+                    {
+                        THROW_ERROR(rc);
                     }
                 }
             
@@ -475,7 +479,7 @@ static void OnChannelReceived(void* pListener, ResCodeT result, const char* data
                     }
                     else 
                     {
-                        THROW_RESCODE(rc);
+                        THROW_ERROR(rc);
                     }
                 }
             

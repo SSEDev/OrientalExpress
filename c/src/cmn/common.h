@@ -142,7 +142,7 @@ typedef int 		socklen_t;
 
 #define EPS_IP_MAX_LEN                      (32)        /* IP字符串字段最大长度 */
 
-#define EPS_SOCKET_RECVBUFFER_LEN           (4096)      /* 套接字接收缓冲区大小，单位: 字节 */
+#define EPS_SOCKET_RECVBUFFER_LEN           (4096*1024) /* 套接字接收缓冲区大小，单位: 字节 */
 #define EPS_SOCKET_RECV_TIMEOUT             (1*1000)    /* 套接字接收超时，单位: 毫秒 */
 
 #define EPS_CHANNEL_RECONNECT_INTL          (1*1000)    /* 连接通道重连时间间隔，单位: 毫秒 */

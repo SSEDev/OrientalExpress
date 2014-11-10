@@ -197,6 +197,12 @@ ResCodeT AcceptMktData(EpsMktDatabaseT* pDatabase, const StepMessageT* pMsg)
             else
             {
                 uint32 applID = pDatabase->applID;
+
+                int32 mktType1;
+                for (mktType1 = EPS_MKTTYPE_ALL + 1; mktType1 <= EPS_MKTTYPE_NUM; mktType1++)
+                {
+                    pDatabase->applSeqNum[mktType1] = 0;
+                }
                 
                 pDatabase->applID = pRecord->applID;
                 pDatabase->applSeqNum[mktType] = pRecord->applSeqNum;
