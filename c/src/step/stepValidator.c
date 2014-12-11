@@ -261,7 +261,7 @@ ResCodeT ValidateLogonRecord(const LogonRecordT* pRecord, StepDirectionT directi
             else if (pRecord->resetSeqNumFlag != 'Y')
             {
                 THROW_ERROR(ERCD_STEP_INVALID_FLDVALUE, STEP_MSG_ENCODING_TAG,
-                    1, pRecord->resetSeqNumFlag, "const value \"Y\"");
+                    1, &pRecord->resetSeqNumFlag, "const value \"Y\"");
             }
 
             if (pRecord->nextExpectedMsgSeqNum == (uint64)STEP_INVALID_UINT_VALUE)

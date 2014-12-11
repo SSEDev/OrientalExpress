@@ -286,7 +286,7 @@ ResCodeT ConvertMktData(const StepMessageT* pMsg, EpsMktDataT* pData)
 
         memset(pData, 0x00, sizeof(EpsMktDataT));
 
-        memcpy(pData->mktTime, pMsg->sendingTime, EPS_TIME_LEN);
+        memcpy(pData->mktTime, pRecord->lastUpdateTime, EPS_TIME_LEN);
         pData->mktType = (EpsMktTypeT)(atoi(pRecord->securityType));
         pData->tradSesMode = (EpsTrdSesModeT)pRecord->tradSesMode;
         pData->applID = pRecord->applID;
